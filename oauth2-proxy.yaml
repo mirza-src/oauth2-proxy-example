@@ -1,0 +1,64 @@
+server:
+  BindAddress: "0.0.0.0:${PORT}"
+
+# oauth2-proxy handles the complete oauth flow and also acts as a reverse proxy with upstreams
+# For oauth2.localhost example
+upstreamConfig:
+  upstreams:
+    - id: frontend
+      path: /
+      uri: ${FRONTEND_URL}
+    - id: backend
+      path: /api/
+      uri: ${BACKEND_URL}
+    # Keycloak upstream for frontend requests
+    # Will only work for API calls, not for the UI (redirection)
+    - id: keycloak
+      path: "/iam/(.*)"
+      uri: ${KEYCLOAK_URL}
+      # HACK: https://github.com/oauth2-proxy/oauth2-proxy/issues/2508#issuecomment-1962726524
+      rewriteTarget: /auth/$$1
+
+providers:
+  - id: keycloak
+    name: Keycloak
+    provider: oidc
+    oidcConfig:
+      # Issuer url must be valid inside container and publically
+      issuerURL: ${OIDC_ISSUER_URL}
+      # HACK: https://github.com/oauth2-proxy/oauth2-proxy/issues/1712#issuecomment-1173659513
+      insecureAllowUnverifiedEmail: true
+      audienceClaims:
+        - aud
+      # HACK: skip_jwt_bearer_tokens doesn't work with Keycloak access tokens as the audience is not the client_id
+      extraAudiences:
+        - account
+      emailClaim: email
+      groupsClaim: groups
+      insecureSkipNonce: true
+      userIDClaim: email
+    # Logout from the Keycloak as well
+    backendLogoutURL: ${OIDC_ISSUER_URL}/protocol/openid-connect/logout?id_token_hint={id_token}
+    clientID: application
+    clientSecret: 7rEuPFNIVtK5IuRdJFOTLWT7xpZp9rDL
+    code_challenge_method: S256
+    loginURLParameters:
+      - name: approval_prompt
+        default:
+          - force
+
+# Add Authorization header to the response so that nginx can forward it to the services
+# For nginx.localhost example
+injectResponseHeaders:
+  - name: Authorization
+    values:
+      - claim: access_token
+        prefix: "Bearer "
+
+# Add Authorization header to the request sent to the upstream services
+# For oauth2.localhost example
+injectRequestHeaders:
+  - name: Authorization
+    values:
+      - claim: access_token
+        prefix: "Bearer "
